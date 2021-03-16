@@ -18,6 +18,7 @@
 
 package org.apache.zookeeper.server;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -76,8 +77,10 @@ import org.apache.zookeeper.proto.SetWatches;
 import org.apache.zookeeper.proto.SetWatches2;
 import org.apache.zookeeper.proto.SyncRequest;
 import org.apache.zookeeper.proto.SyncResponse;
+import org.apache.zookeeper.proto.WhoAmIResponse;
 import org.apache.zookeeper.server.DataTree.ProcessTxnResult;
 import org.apache.zookeeper.server.quorum.QuorumZooKeeperServer;
+import org.apache.zookeeper.server.util.AuthUtil;
 import org.apache.zookeeper.server.util.RequestPathMetricsCollector;
 import org.apache.zookeeper.txn.ErrorTxn;
 import org.slf4j.Logger;
@@ -327,7 +330,7 @@ public class FinalRequestProcessor implements RequestProcessor {
             case OpCode.reconfig: {
                 lastOp = "RECO";
                 rsp = new GetDataResponse(
-                    ((QuorumZooKeeperServer) zks).self.getQuorumVerifier().toString().getBytes(),
+                    ((QuorumZooKeeperServer) zks).self.getQuorumVerifier().toString().getBytes(UTF_8),
                     rc.stat);
                 err = Code.get(rc.err);
                 break;
@@ -546,6 +549,11 @@ public class FinalRequestProcessor implements RequestProcessor {
                 requestPathMetricsCollector.registerRequest(request.type, removeWatches.getPath());
                 break;
             }
+            case OpCode.whoAmI: {
+                lastOp = "HOMI";
+                rsp = new WhoAmIResponse(AuthUtil.getClientInfos(request.authInfo));
+                break;
+             }
             case OpCode.getEphemerals: {
                 lastOp = "GETE";
                 GetEphemeralsRequest getEphemerals = new GetEphemeralsRequest();

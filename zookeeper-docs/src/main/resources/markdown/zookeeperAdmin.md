@@ -788,7 +788,7 @@ property, when available, is noted below.
    must be 127 or less. Additionally, the maximum support TTL value is `1099511627775` which is smaller
    than what was allowed in 3.5.3 (`1152921504606846975`)
 
-* *watchManaggerName* :
+* *watchManagerName* :
   (Java system property only: **zookeeper.watchManagerName**)
   **New in 3.6.0:** Added in [ZOOKEEPER-1179](https://issues.apache.org/jira/browse/ZOOKEEPER-1179)
    New watcher manager WatchManagerOptimized is added to optimize the memory overhead in heavy watch use cases. This
@@ -977,6 +977,12 @@ property, when available, is noted below.
     commit log is triggered.
     Does not affect the limit defined by *flushDelay*.
     Default is 1000.
+
+* *enforceQuota* :
+    (Java system property: **zookeeper.enforceQuota**)
+    **New in 3.7.0:**
+    Enforce the quota check. When enabled and the client exceeds the total bytes or children count hard quota under a znode, the server will reject the request and reply the client a `QuotaExceededException` by force.
+    The default value is: false. Exploring [quota feature](http://zookeeper.apache.org/doc/current/zookeeperQuotas.html) for more details.
 
 * *requestThrottleLimit* :
     (Java system property: **zookeeper.request_throttle_max_requests**)
@@ -1349,7 +1355,8 @@ of servers -- that is, when deploying clusters of servers.
     not enable the command.
     By default the whitelist only contains "srvr" command
     which zkServer.sh uses. The rest of four letter word commands are disabled
-    by default.
+    by default: attempting to use them will gain a response
+    ".... is not executed because it is not in the whitelist."
     Here's an example of the configuration that enables stat, ruok, conf, and isro
     command while disabling the rest of Four Letter Words command:
 
@@ -1440,6 +1447,16 @@ Beside this page, you can also find useful information about client side configu
 The ZooKeeper Wiki also has useful pages about [ZooKeeper SSL support](https://cwiki.apache.org/confluence/display/ZOOKEEPER/ZooKeeper+SSL+User+Guide),
 and [SASL authentication for ZooKeeper](https://cwiki.apache.org/confluence/display/ZOOKEEPER/ZooKeeper+and+SASL).
 
+* *DigestAuthenticationProvider.enabled* :
+    (Java system property: **zookeeper.DigestAuthenticationProvider.enabled**)
+    **New in 3.7:**
+    Determines whether the `digest` authentication provider is
+    enabled.  The default value is **true** for backwards
+    compatibility, but it may be a good idea to disable this provider
+    if not used, as it can result in misleading entries appearing in
+    audit logs
+    (see [ZOOKEEPER-3979](https://issues.apache.org/jira/browse/ZOOKEEPER-3979))
+
 * *DigestAuthenticationProvider.superDigest* :
     (Java system property: **zookeeper.DigestAuthenticationProvider.superDigest**)
     By default this feature is **disabled**
@@ -1461,6 +1478,33 @@ and [SASL authentication for ZooKeeper](https://cwiki.apache.org/confluence/disp
     localhost (not over the network) or over an encrypted
     connection.
 
+* *DigestAuthenticationProvider.digestAlg* :
+    (Java system property: **zookeeper.DigestAuthenticationProvider.digestAlg**)
+     **New in 3.7.0:**
+    Set ACL digest algorithm. The default value is: `SHA1` which will be deprecated in the future for security issues.
+    Set this property the same value in all the servers.
+
+    - How to support other more algorithms?
+        - modify the `java.security` configuration file under `$JAVA_HOME/jre/lib/security/java.security` by specifying:
+             `security.provider.<n>=<provider class name>`.
+
+             ```
+             For example:
+             set zookeeper.DigestAuthenticationProvider.digestAlg=RipeMD160
+             security.provider.3=org.bouncycastle.jce.provider.BouncyCastleProvider
+             ```
+
+        - copy the jar file to `$JAVA_HOME/jre/lib/ext/`.
+
+             ```
+             For example:
+             copy bcprov-jdk15on-1.60.jar to $JAVA_HOME/jre/lib/ext/
+             ```
+
+    - How to migrate from one digest algorithm to another?
+        - 1. Regenerate `superDigest` when migrating to new algorithm.
+        - 2. `SetAcl` for a znode which already had a digest auth of old algorithm.
+
 * *X509AuthenticationProvider.superUser* :
     (Java system property: **zookeeper.X509AuthenticationProvider.superUser**)
     The SSL-backed way to enable a ZooKeeper ensemble
@@ -1474,6 +1518,9 @@ and [SASL authentication for ZooKeeper](https://cwiki.apache.org/confluence/disp
     Similar to **zookeeper.X509AuthenticationProvider.superUser**
     but is generic for SASL based logins. It stores the name of
     a user that can access the znode hierarchy as a "super" user.
+    You can specify multiple SASL super users using the
+    **zookeeper.superUser.[suffix]** notation, e.g.:
+    `zookeeper.superUser.1=...`.
 
 * *ssl.authProvider* :
     (Java system property: **zookeeper.ssl.authProvider**)
@@ -1664,6 +1711,14 @@ and [SASL authentication for ZooKeeper](https://cwiki.apache.org/confluence/disp
     You can instruct ZooKeeper to remove the realm from the client principal name during authentication.
     (e.g. the zk/myhost@EXAMPLE.COM client principal will be authenticated in ZooKeeper as zk/myhost)
     Default: false
+
+* *kerberos.canonicalizeHostNames*
+    (Java system property: **zookeeper.kerberos.canonicalizeHostNames**)
+    **New in 3.7.0:**
+    Instructs ZooKeeper to canonicalize server host names extracted from *server.x* lines.
+    This allows using e.g. `CNAME` records to reference servers in configuration files, while still enabling SASL Kerberos authentication between quorum members.
+    It is essentially the quorum equivalent of the *zookeeper.sasl.client.canonicalize.hostname* property for clients.
+    The default value is **false** for backwards compatibility.
 
 * *multiAddress.enabled* :
     (Java system property: **zookeeper.multiAddress.enabled**)
@@ -2188,7 +2243,7 @@ connections respectively.
 
 **New in 3.5.3:**
 Four Letter Words need to be explicitly white listed before using.
-Please refer **4lw.commands.whitelist**
+Please refer to **4lw.commands.whitelist**
 described in [cluster configuration section](#sc_clusterOptions) for details.
 Moving forward, Four Letter Words will be deprecated, please use
 [AdminServer](#sc_adminserver) instead.
@@ -2215,9 +2270,11 @@ Moving forward, Four Letter Words will be deprecated, please use
     Print details about serving environment
 
 * *ruok* :
-    Tests if server is running in a non-error state. The server
-    will respond with imok if it is running. Otherwise it will not
-    respond at all.
+    Tests if the server is running in a non-error state.
+    When the whitelist enables ruok, the server will respond with `imok`
+    if it is running, otherwise it will not respond at all.
+    When ruok is disabled, the server responds with:
+    "ruok is not executed because it is not in the whitelist."
     A response of "imok" does not necessarily indicate that the
     server has joined the quorum, just that the server process is active
     and bound to the specified client port. Use "stat" for details on
